@@ -2,6 +2,7 @@
 #include <geometry.hh>
 #include "Mesh.hpp"
 #include <Eigen/Eigen>
+#include "SimpleDomain.hpp"
 
 namespace libcdgbs {
   class SurfGBS {
@@ -89,6 +90,7 @@ namespace libcdgbs {
     std::vector<std::vector<std::vector<VertexHandle> > > domain_boundary_vertices;
     std::vector<std::vector<std::vector<double> > > domain_boundary_params;
 
+    SimpleDomain simple_domain;
 
     size_t num_loops;
     std::vector<size_t> num_sides;

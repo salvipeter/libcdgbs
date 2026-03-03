@@ -556,8 +556,7 @@ bool SurfGBS::compute_domain_boundary()
 
   }
 
-
-
+  simple_domain.init(domain_boundary_curves);
 
   if (debug_outputs) {
     writeLoops(domain_boundary_curves, "boundary_uv_1.obj");
@@ -600,6 +599,22 @@ bool SurfGBS::compute_domain_mesh()
 
 bool SurfGBS::compute_local_parameters()
 {
+  if (false) {
+    // Side-based quadratic parameterization
+    s_coords.resize(meshDomain.n_vertices());
+    h_coords.resize(meshDomain.n_vertices());
+    for (const auto &v : meshDomain.vertices()) {
+      auto q = meshDomain.point(v);
+      Vec3 p(q[0], q[1], 0);
+      auto &s = s_coords[v.idx()];
+      auto &h = h_coords[v.idx()];
+      s.resize(num_loops);
+      h.resize(num_loops);
+      simple_domain.computeParameters(p, num_sides, s, h);
+    }
+    return true;
+  }
+
   if (!compute_harmonic_parameters()) {
     std::cout << "Error computing harmonic parameters" << std::endl;
     return false;

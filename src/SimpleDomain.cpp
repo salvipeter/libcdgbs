@@ -41,6 +41,7 @@ double det2d(const Eigen::Vector<double, N> &a, const Eigen::Vector<double, M>  
   return a[0] * b[1] - a[1] * b[0];
 };
 
+[[maybe_unused]]
 static Parabola parabolaThroughPoint(const Parabola &p, const Vec3 &q) {
   using Vec2 = Eigen::Vector2d;
 
@@ -83,6 +84,14 @@ static Parabola parabolaThroughPoint(const Parabola &p, const Vec3 &q) {
   return { p[0] + best_d * Vec3(n0[0], n0[1], 0),
            p[1] + best_d * Vec3(m[0],  m[1],  0),
            p[2] + best_d * Vec3(n2[0], n2[1], 0) };
+}
+
+[[maybe_unused]]
+static Parabola parabolize(const SimpleDomain::EdgeCurve &c) {
+  if (std::holds_alternative<Parabola>(c))
+    return std::get<Parabola>(c);
+  const auto &s = std::get<Segment>(c);
+  return { s[0], (s[0] + s[1]) / 2, s[1] };
 }
 
 static SimpleDomain::EdgeCurve fitParabola(const SimpleDomain::Edge &e) {

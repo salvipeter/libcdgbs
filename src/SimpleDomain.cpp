@@ -1,16 +1,45 @@
 #include "libcdgbs/SimpleDomain.hpp"
 
+#include <algorithm>
+#include <exception>
 #include <limits>
 
 #include <Eigen/Dense>
 
+using Vec2 = Eigen::Vector2d;
 using Vec3 = SimpleDomain::Vec3;
 using Segment = SimpleDomain::Segment;
 using Parabola = SimpleDomain::Parabola;
+using EdgeCurve = SimpleDomain::EdgeCurve;
 
-// Solves c4 x^4 + ... + c0 = 0, selects the real root of smallest absolute value
-static double quarticSolver(double c0, double c1, double c2, double c3, double c4) {
-  double tol = 1e-9; // imaginary part tolerance
+namespace {
+
+// Selects the real root of smallest absolute value
+double selectSmallestRoot(const Eigen::Vector4cd &roots, double tol = 1e-9) {
+  double best = 0;
+  double min_abs = std::numeric_limits<double>::max();
+  for (int i = 0; i < roots.size(); ++i)
+    if (std::abs(roots[i].imag()) < tol) {
+      double r = roots[i].real();
+      if (std::abs(r) < min_abs) {
+        min_abs = std::abs(r);
+        best = r;
+      }
+    }
+  return best;
+}
+
+// Selects the (assumed to be only) real root in [0,1]
+double select01Root(const Eigen::Vector4cd &roots, double tol = 1e-9) {
+  for (int i = 0; i < roots.size(); ++i)
+    if (std::abs(roots[i].imag()) < tol &&
+        roots[i].real() > -tol && roots[i].real() < 1 + tol)
+      return std::clamp(roots[i].real(), 0.0, 1.0);
+  throw std::runtime_error("no root in [0,1] found");
+}
+
+// Solves c4 x^4 + ... + c0 = 0
+auto quarticSolver(double c0, double c1, double c2, double c3, double c4) {
   double a3 = c3 / c4, a2 = c2 / c4, a1 = c1 / c4, a0 = c0 / c4;
 
   Eigen::Matrix4d companion;
@@ -19,21 +48,7 @@ static double quarticSolver(double c0, double c1, double c2, double c3, double c
                0, 1, 0, -a2,
                0, 0, 1, -a3;
   Eigen::EigenSolver<Eigen::Matrix4d> es(companion);
-  auto roots = es.eigenvalues();
-
-  double best = 0;
-  double min_abs = std::numeric_limits<double>::max();
-  for (int i = 0; i < roots.size(); ++i) {
-    if (std::abs(roots[i].imag()) < tol) {
-      double r = roots[i].real();
-      if (std::abs(r) < min_abs) {
-        min_abs = std::abs(r);
-        best = r;
-      }
-    }
-  }
-
-  return best;
+  return es.eigenvalues();
 }
 
 template<size_t N, size_t M>
@@ -42,9 +57,7 @@ double det2d(const Eigen::Vector<double, N> &a, const Eigen::Vector<double, M>  
 };
 
 [[maybe_unused]]
-static Parabola parabolaThroughPoint(const Parabola &p, const Vec3 &q) {
-  using Vec2 = Eigen::Vector2d;
-
+Parabola parabolaThroughPoint(const Parabola &p, const Vec3 &q) {
   // 1. Compute Unit Normals
   auto getNormal = [](const Vec3 &v) { return Vec2(-v[1], v[0]).normalized(); };
   auto n0 = getNormal(p[1] - p[0]);
@@ -79,7 +92,7 @@ static Parabola parabolaThroughPoint(const Parabola &p, const Vec3 &q) {
   auto c4 = 4 * (L1[2] * L2[2]) - (L3[2] * L3[2]);
 
   // 5. Solve Quartic
-  auto best_d = quarticSolver(c0, c1, c2, c3, c4);
+  auto best_d = selectSmallestRoot(quarticSolver(c0, c1, c2, c3, c4));
 
   return { p[0] + best_d * Vec3(n0[0], n0[1], 0),
            p[1] + best_d * Vec3(m[0],  m[1],  0),
@@ -87,16 +100,34 @@ static Parabola parabolaThroughPoint(const Parabola &p, const Vec3 &q) {
 }
 
 [[maybe_unused]]
-static Parabola parabolize(const SimpleDomain::EdgeCurve &c) {
+Parabola parabolize(const EdgeCurve &c) {
   if (std::holds_alternative<Parabola>(c))
     return std::get<Parabola>(c);
   const auto &s = std::get<Segment>(c);
   return { s[0], (s[0] + s[1]) / 2, s[1] };
 }
 
+struct ImplicitConic {
+  double A, B, C, D, E, F;
+  double eval(double x, double y) const {
+    return A * x * x + B * x * y + C * y * y + D * x + E * y + F;
+  }
+  Vec2 grad(double x, double y) const {
+    return { 2 * A * x + B * y + D, 2 * C * y + B * x + E };
+  }
+  double normeval(double x, double y) const {
+    return eval(x, y) / grad(x, y).norm();
+  }
+  ImplicitConic operator+(const ImplicitConic &c) const {
+    return { A + c.A, B + c.B, C + c.C, D + c.D, E + c.E, F + c.F };
+  }
+  ImplicitConic operator*(double s) const {
+    return { A * s, B * s, C * s, D * s, E * s, F * s };
+  }
+};
+
 // Based on Sederberg'84
-[[maybe_unused]]
-static auto implicitize(const Parabola &p) {
+auto implicitize(const Parabola &p) {
   Vec3 q0 = p[0], q1 = 2 * (p[1] - p[0]), q2 = p[0] - 2 * p[1] + p[2];
   double a0 = q0[0], a1 = q1[0], a2 = q2[0];
   double b0 = q0[1], b1 = q1[1], b2 = q2[1];
@@ -110,18 +141,50 @@ static auto implicitize(const Parabola &p) {
        b2, b1, b0, 0,
         0, b2, b1, b0;
   auto F = m.determinant();
-  auto grad = [=](double x, double y) {
-    return Vec2(2 * A * x + B * y + D,
-                2 * C * y + B * x + E);
-  };
-  return [=](double x, double y) {
-    double v = A * x * x + B * x * y + C * y * y + D * x + E * y + F;
-    return v;
-    // return v / grad(x, y).norm();
-  };
+  return ImplicitConic{A, B, C, D, E, F};
 }
 
-static SimpleDomain::EdgeCurve fitParabola(const SimpleDomain::Edge &e) {
+auto implicitize(const Segment &p) {
+  Vec3 d = p[1] - p[0], n(-d[1], d[0], 0);
+  return ImplicitConic{0, 0, 0, n[0], n[1], -n.dot(p[0])};
+}
+
+[[maybe_unused]]
+auto implicitize(const EdgeCurve &c) {
+  if (std::holds_alternative<Segment>(c))
+    return implicitize(std::get<Segment>(c));
+  return implicitize(std::get<Parabola>(c));
+}
+
+// Returns the (assumed to be only) real root in [0,1]
+[[maybe_unused]]
+double parabolaConicintersection(const Parabola &p, const ImplicitConic &c) {
+  // Quadratic form: x(t) = ax t^2 + bx t + cx
+  auto ax = p[0][0] - 2.0*p[1][0] + p[2][0];
+  auto ay = p[0][1] - 2.0*p[1][1] + p[2][1];
+  auto bx = -2.0*p[0][0] + 2.0*p[1][0];
+  auto by = -2.0*p[0][1] + 2.0*p[1][1];
+  auto cx = p[0][0];
+  auto cy = p[0][1];
+
+  // Precompute products for x^2, xy, y^2 expansions
+  auto x2_4 = ax*ax, x2_3 = 2.0*ax*bx, x2_2 = 2.0*ax*cx + bx*bx, x2_1 = 2.0*bx*cx, x2_0 = cx*cx;
+  auto y2_4 = ay*ay, y2_3 = 2.0*ay*by, y2_2 = 2.0*ay*cy + by*by, y2_1 = 2.0*by*cy, y2_0 = cy*cy;
+  auto xy_4 = ax*ay, xy_3 = ax*by + bx*ay, xy_2 = ax*cy + bx*by + cx*ay, xy_1 = bx*cy + cx*by,
+    xy_0 = cx*cy;
+  auto x_2 = ax, x_1 = bx, x_0 = cx, y_2 = ay, y_1 = by, y_0 = cy;
+
+  // Assemble coefficients
+  auto c4 = c.A*x2_4 + c.B*xy_4 + c.C*y2_4;
+  auto c3 = c.A*x2_3 + c.B*xy_3 + c.C*y2_3;
+  auto c2 = c.A*x2_2 + c.B*xy_2 + c.C*y2_2 + c.D*x_2 + c.E*y_2;
+  auto c1 = c.A*x2_1 + c.B*xy_1 + c.C*y2_1 + c.D*x_1 + c.E*y_1;
+  auto c0 = c.A*x2_0 + c.B*xy_0 + c.C*y2_0 + c.D*x_0 + c.E*y_0 + c.F;
+
+  return select01Root(quarticSolver(c0, c1, c2, c3, c4));
+}
+
+EdgeCurve fitParabola(const SimpleDomain::Edge &e) {
   // Do a LSQ fit on the central control point.
   // If it is close to the p0 p2 line,
   // or if it curves in the wrong direction, return a straight line.
@@ -151,7 +214,7 @@ static SimpleDomain::EdgeCurve fitParabola(const SimpleDomain::Edge &e) {
   return Parabola{p0, p1, p2};
 }
 
-static SimpleDomain::Circle fitCircle(const SimpleDomain::Loop &loop) {
+SimpleDomain::Circle fitCircle(const SimpleDomain::Loop &loop) {
   Vec3 center(0, 0, 0);
   size_t k = 0;
   for (const auto &edge : loop) {
@@ -170,7 +233,7 @@ static SimpleDomain::Circle fitCircle(const SimpleDomain::Loop &loop) {
   return { center, r, offset, k };
 }
 
-static Vec3 evalEdgeCurve(const SimpleDomain::EdgeCurve &c, double u) {
+Vec3 evalEdgeCurve(const EdgeCurve &c, double u) {
   if (std::holds_alternative<Segment>(c)) {
     const auto &p = std::get<Segment>(c);
     return p[0] * (1 - u) + p[1] * u;
@@ -178,6 +241,8 @@ static Vec3 evalEdgeCurve(const SimpleDomain::EdgeCurve &c, double u) {
   const auto &p = std::get<Parabola>(c);
   return p[0] * (1 - u) * (1 - u) + p[1] * 2 * (1 - u) * u + p[2] * u * u;
 }
+
+} // anonymous namespace
 
 void SimpleDomain::init(std::vector<SimpleDomain::Loop> &loops) {
   auto num_loops = loops.size();
@@ -212,11 +277,13 @@ void SimpleDomain::init(std::vector<SimpleDomain::Loop> &loops) {
   }
 }
 
-static void computeDistances(const Vec3 &p,
-                             const std::vector<SimpleDomain::EdgeCurve> &boundaries,
-                             const std::vector<SimpleDomain::Circle> &circles,
-                             std::vector<double> &d,
-                             std::vector<std::pair<double,double>> &dmax) {
+namespace {
+
+void computeDistances(const Vec3 &p,
+                      const std::vector<EdgeCurve> &boundaries,
+                      const std::vector<SimpleDomain::Circle> &circles,
+                      std::vector<double> &d,
+                      std::vector<std::pair<double,double>> &dmax) {
   size_t n = boundaries.size();
   for (size_t i = 0; i < n; ++i) {
     const auto &edge = std::get<Segment>(boundaries[i]);
@@ -232,10 +299,10 @@ static void computeDistances(const Vec3 &p,
   }
 }
 
-static void computeBoundaryS(const Vec3 &p, size_t n,
-                             const std::vector<double> &d,
-                             const std::vector<std::pair<double,double>> &dmax,
-                             std::vector<double> &s) {
+void computeBoundaryS(const Vec3 &p, size_t n,
+                      const std::vector<double> &d,
+                      const std::vector<std::pair<double,double>> &dmax,
+                      std::vector<double> &s) {
   for (size_t i = 0; i < n; ++i) {
     size_t i1 = (i + 1) % n, i_1 = (i + n - 1) % n;
     auto d_1 = d[i_1] / dmax[i_1].second, d1 = d[i1] / dmax[i1].first;
@@ -243,8 +310,8 @@ static void computeBoundaryS(const Vec3 &p, size_t n,
   }
 }
 
-static void computeHoleS(const Vec3 &p, const SimpleDomain::Circle &c, size_t num_sides,
-                         std::vector<double> &s) {
+void computeHoleS(const Vec3 &p, const SimpleDomain::Circle &c, size_t num_sides,
+                  std::vector<double> &s) {
   Vec3 dev = (p - c.center).normalized();
   double angle = std::atan2(dev[1], dev[0]);
   double pp = 2 * M_PI;
@@ -252,7 +319,7 @@ static void computeHoleS(const Vec3 &p, const SimpleDomain::Circle &c, size_t nu
     s.push_back(std::fmod(c.start_angle - angle + 10 * pp, pp) / pp);
 }
 
-static size_t pointOnSide(const Vec3 &p, const std::vector<double> &d, double tol) {
+size_t pointOnSide(const Vec3 &p, const std::vector<double> &d, double tol) {
   size_t m = d.size();
   for (size_t i = 0; i < m; ++i)
     if (d[i] < tol)
@@ -260,9 +327,9 @@ static size_t pointOnSide(const Vec3 &p, const std::vector<double> &d, double to
   return m;
 }
 
-static void computeSideH(size_t on_side, const std::vector<double> &d,
-                         const std::vector<size_t> &num_sides,
-                         std::vector<std::vector<double>> &h) {
+void computeSideH(size_t on_side, const std::vector<double> &d,
+                  const std::vector<size_t> &num_sides,
+                  std::vector<std::vector<double>> &h) {
   auto n = num_sides[0];
   if (on_side < n) {
     for (size_t i = 0; i < n; ++i)
@@ -283,7 +350,7 @@ static void computeSideH(size_t on_side, const std::vector<double> &d,
   }
 }
 
-static void fixS(size_t on_side, size_t n, size_t n_pts, std::vector<double> &s) {
+void fixS(size_t on_side, size_t n, size_t n_pts, std::vector<double> &s) {
   n_pts--;
   s[on_side] = std::round(s[on_side] * n_pts) / n_pts;
   if (s[on_side] == 0)
@@ -292,9 +359,9 @@ static void fixS(size_t on_side, size_t n, size_t n_pts, std::vector<double> &s)
     s[(on_side+1)%n] = 0;
 }
 
-static void computeInteriorH(const std::vector<double> &d,
-                             const std::vector<size_t> &num_sides,
-                             std::vector<std::vector<double>> &h) {
+void computeInteriorH(const std::vector<double> &d,
+                      const std::vector<size_t> &num_sides,
+                      std::vector<std::vector<double>> &h) {
   size_t m = d.size(), n = num_sides[0];
   std::vector<double> prods(m); // prods[i] = 1/(di-1 di) or 1/di^2
   double sum = 0;
@@ -312,6 +379,8 @@ static void computeInteriorH(const std::vector<double> &d,
     for (size_t j = 0; j < num_sides[i-n+1]; ++j)
       h[i-n+1].push_back(std::sqrt(1 - prods[i] / sum));
 }
+
+} // anonymous namespace
 
 void SimpleDomain::computeParameters(const Vec3 &p,
                                      std::vector<std::vector<double>> &s,

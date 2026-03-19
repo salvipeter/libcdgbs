@@ -94,6 +94,33 @@ static Parabola parabolize(const SimpleDomain::EdgeCurve &c) {
   return { s[0], (s[0] + s[1]) / 2, s[1] };
 }
 
+// Based on Sederberg'84
+[[maybe_unused]]
+static auto implicitize(const Parabola &p) {
+  Vec3 q0 = p[0], q1 = 2 * (p[1] - p[0]), q2 = p[0] - 2 * p[1] + p[2];
+  double a0 = q0[0], a1 = q1[0], a2 = q2[0];
+  double b0 = q0[1], b1 = q1[1], b2 = q2[1];
+  // A x^2 + B xy + C y^2 + D x + E y + F = 0
+  auto A = b2 * b2, B = -2 * a2 * b2, C = a2 * a2;
+  auto D = -2 * a0 * b2 * b2 + a1 * b1 * b2 - a2 * b1 * b1 + 2 * a2 * b0 * b2;
+  auto E = -2 * b0 * a2 * a2 + b1 * a1 * a2 - b2 * a1 * a1 + 2 * b2 * a0 * a2;
+  Eigen::Matrix4d m;
+  m << a2, a1, a0, 0,
+        0, a2, a1, a0,
+       b2, b1, b0, 0,
+        0, b2, b1, b0;
+  auto F = m.determinant();
+  auto grad = [=](double x, double y) {
+    return Vec2(2 * A * x + B * y + D,
+                2 * C * y + B * x + E);
+  };
+  return [=](double x, double y) {
+    double v = A * x * x + B * x * y + C * y * y + D * x + E * y + F;
+    return v;
+    // return v / grad(x, y).norm();
+  };
+}
+
 static SimpleDomain::EdgeCurve fitParabola(const SimpleDomain::Edge &e) {
   // Do a LSQ fit on the central control point.
   // If it is close to the p0 p2 line,

@@ -610,7 +610,7 @@ bool SurfGBS::compute_local_parameters()
       auto &h = h_coords[v.idx()];
       s.resize(num_loops);
       h.resize(num_loops);
-      simple_domain.computeParameters(p, num_sides, s, h);
+      simple_domain.computeParameters(p, s, h);
     }
     return true;
   }

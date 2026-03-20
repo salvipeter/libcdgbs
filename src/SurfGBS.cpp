@@ -599,7 +599,7 @@ bool SurfGBS::compute_domain_mesh()
 
 bool SurfGBS::compute_local_parameters()
 {
-  if (false) {
+  if (true) {
     // Side-based quadratic parameterization
     s_coords.resize(meshDomain.n_vertices());
     h_coords.resize(meshDomain.n_vertices());

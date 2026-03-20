@@ -30,9 +30,9 @@ double selectSmallestRoot(const Eigen::VectorXcd &roots, double tol = 1e-9) {
 }
 
 // Selects the (assumed to be only) real root in [0,1]
-double select01Root(const Eigen::VectorXcd &roots, double tol = 1e-9) {
+double select01Root(const Eigen::VectorXcd &roots, double imagtol = 1e-9, double tol = 1e-6) {
   for (int i = 0; i < roots.size(); ++i)
-    if (std::abs(roots[i].imag()) < tol &&
+    if (std::abs(roots[i].imag()) < imagtol &&
         roots[i].real() > -tol && roots[i].real() < 1 + tol)
       return std::clamp(roots[i].real(), 0.0, 1.0);
   throw std::runtime_error("no root in [0,1] found");
@@ -290,31 +290,30 @@ namespace {
 void computeDistances(const Vec3 &p,
                       const std::vector<EdgeCurve> &boundaries,
                       const std::vector<SimpleDomain::Circle> &circles,
-                      std::vector<double> &d,
-                      std::vector<std::pair<double,double>> &dmax) {
+                      std::vector<double> &d) {
   size_t n = boundaries.size();
-  for (size_t i = 0; i < n; ++i) {
-    const auto &edge = std::get<Segment>(boundaries[i]);
-    Vec3 q = edge[0], t = (edge[1] - q).normalized(), ndir = {-t[1], t[0], 0};
-    const Vec3 &pl = std::get<Segment>(boundaries[(i+n-1)%n])[0];
-    const Vec3 &pr = std::get<Segment>(boundaries[(i+1)%n])[1];
-    d.push_back(std::abs(ndir.dot(p - q)));
-    dmax.push_back({std::abs(ndir.dot(pl - q)), std::abs(ndir.dot(pr - q))});
-  }
+  for (size_t i = 0; i < n; ++i)
+    // d.push_back(parabolaThroughPoint(parabolize(boundaries[i]), p).first);
+    d.push_back(implicitize(boundaries[i]).normeval(p[0], p[1]));
   for (size_t loop = 1; loop < circles.size(); ++loop) {
     const auto &c = circles[loop];
     d.push_back((c.center - p).norm() - c.radius);
   }
 }
 
-void computeBoundaryS(const Vec3 &p, size_t n,
-                      const std::vector<double> &d,
-                      const std::vector<std::pair<double,double>> &dmax,
+void computeBoundaryS(const Vec3 &p,
+                      const std::vector<EdgeCurve> &boundaries,
                       std::vector<double> &s) {
+  auto x = p[0], y = p[1];
+  auto n = boundaries.size();
   for (size_t i = 0; i < n; ++i) {
     size_t i1 = (i + 1) % n, i_1 = (i + n - 1) % n;
-    auto d_1 = d[i_1] / dmax[i_1].second, d1 = d[i1] / dmax[i1].first;
-    s.push_back(d_1 / (d_1 + d1));
+    auto left_i = implicitize(boundaries[i_1]), right_i = implicitize(boundaries[i1]);
+    auto d1 = left_i.eval(x, y), d2 = right_i.eval(x, y);
+    auto s0 = d1 / (d1 + d2);
+    auto initial_s = left_i + (left_i + right_i) * (-s0);
+    auto final_s = parabolaConicintersection(parabolize(boundaries[i]), initial_s);
+    s.push_back(final_s);
   }
 }
 
@@ -396,10 +395,8 @@ void SimpleDomain::computeParameters(const Vec3 &p,
   // Compute Euclidean distances
   auto num_loops = num_sides.size();
   std::vector<double> d;
-  std::vector<std::pair<double,double>> dmax; // prev & next maximal distances
-  computeDistances(p, boundaries, holes, d, dmax);
-  // Compute s
-  computeBoundaryS(p, num_sides[0], d, dmax, s[0]);
+  computeDistances(p, boundaries, holes, d);
+  computeBoundaryS(p, boundaries, s[0]);
   for (size_t i = 1; i < num_loops; ++i)
     computeHoleS(p, holes[i], num_sides[i], s[i]);
   size_t on_side = pointOnSide(p, d, 1e-4); // returns d.size() when not

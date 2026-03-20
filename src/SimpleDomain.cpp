@@ -15,7 +15,7 @@ using EdgeCurve = SimpleDomain::EdgeCurve;
 namespace {
 
 // Selects the real root of smallest absolute value
-double selectSmallestRoot(const Eigen::Vector4cd &roots, double tol = 1e-9) {
+double selectSmallestRoot(const Eigen::VectorXcd &roots, double tol = 1e-9) {
   double best = 0;
   double min_abs = std::numeric_limits<double>::max();
   for (int i = 0; i < roots.size(); ++i)
@@ -30,7 +30,7 @@ double selectSmallestRoot(const Eigen::Vector4cd &roots, double tol = 1e-9) {
 }
 
 // Selects the (assumed to be only) real root in [0,1]
-double select01Root(const Eigen::Vector4cd &roots, double tol = 1e-9) {
+double select01Root(const Eigen::VectorXcd &roots, double tol = 1e-9) {
   for (int i = 0; i < roots.size(); ++i)
     if (std::abs(roots[i].imag()) < tol &&
         roots[i].real() > -tol && roots[i].real() < 1 + tol)
@@ -38,16 +38,25 @@ double select01Root(const Eigen::Vector4cd &roots, double tol = 1e-9) {
   throw std::runtime_error("no root in [0,1] found");
 }
 
-// Solves c4 x^4 + ... + c0 = 0
-auto quarticSolver(double c0, double c1, double c2, double c3, double c4) {
-  double a3 = c3 / c4, a2 = c2 / c4, a1 = c1 / c4, a0 = c0 / c4;
-
-  Eigen::Matrix4d companion;
-  companion << 0, 0, 0, -a0,
-               1, 0, 0, -a1,
-               0, 1, 0, -a2,
-               0, 0, 1, -a3;
-  Eigen::EigenSolver<Eigen::Matrix4d> es(companion);
+// Solves cN x^N + ... + c1 x + c0 = 0
+template<size_t N>
+auto generalSolver(const std::array<double, N+1> &coeffs) {
+  if (std::abs(coeffs[N]) < 1e-10) {
+    if constexpr (N == 1)
+      throw std::runtime_error("constant polynomial");
+    else {
+      std::array<double, N> smaller;
+      std::copy(coeffs.begin(), coeffs.begin() + N, smaller.begin());
+      return generalSolver<N-1>(smaller);
+    }
+  }
+  Eigen::MatrixXd companion = Eigen::MatrixXd::Zero(N, N);
+  for (size_t i = 0; i < N; ++i) {
+    if (i > 0)
+      companion(i, i - 1) = 1;
+    companion(i, N - 1) = -coeffs[i] / coeffs[N];
+  }
+  Eigen::EigenSolver<Eigen::MatrixXd> es(companion);
   return es.eigenvalues();
 }
 
@@ -57,13 +66,11 @@ double det2d(const Eigen::Vector<double, N> &a, const Eigen::Vector<double, M>  
 };
 
 [[maybe_unused]]
-Parabola parabolaThroughPoint(const Parabola &p, const Vec3 &q) {
-  // 1. Compute Unit Normals
+std::pair<double, Parabola> parabolaThroughPoint(const Parabola &p, const Vec3 &q) {
   auto getNormal = [](const Vec3 &v) { return Vec2(-v[1], v[0]).normalized(); };
   auto n0 = getNormal(p[1] - p[0]);
   auto n2 = getNormal(p[2] - p[1]);
 
-  // 2. Compute Apex Trajectory (m)
   // Solve system: n0.dot(m) = 1, n2.dot(m) = 1
   Eigen::Matrix2d mat;
   mat << n0.transpose(), n2.transpose();
@@ -84,19 +91,19 @@ Parabola parabolaThroughPoint(const Parabola &p, const Vec3 &q) {
 
   // 4. Expand 4*L1*L2 - L3^2 to get Quartic Coefficients [a0, a1, a2, a3, a4]
   // (A+Bx+Cx^2)(D+Ex+Fx^2) expansion
-  auto c0 = 4 * (L1[0] * L2[0]) - (L3[0] * L3[0]);
-  auto c1 = 4 * (L1[0] * L2[1] + L1[1] * L2[0]) - (2 * L3[0] * L3[1]);
-  auto c2 = 4 * (L1[0] * L2[2] + L1[1] * L2[1] + L1[2] * L2[0]) -
+  std::array<double, 5> coeffs;
+  coeffs[0] = 4 * (L1[0] * L2[0]) - (L3[0] * L3[0]);
+  coeffs[1] = 4 * (L1[0] * L2[1] + L1[1] * L2[0]) - (2 * L3[0] * L3[1]);
+  coeffs[2] = 4 * (L1[0] * L2[2] + L1[1] * L2[1] + L1[2] * L2[0]) -
     (L3[1] * L3[1] + 2 * L3[0] * L3[2]);
-  auto c3 = 4 * (L1[1] * L2[2] + L1[2] * L2[1]) - (2 * L3[1] * L3[2]);
-  auto c4 = 4 * (L1[2] * L2[2]) - (L3[2] * L3[2]);
+  coeffs[3] = 4 * (L1[1] * L2[2] + L1[2] * L2[1]) - (2 * L3[1] * L3[2]);
+  coeffs[4] = 4 * (L1[2] * L2[2]) - (L3[2] * L3[2]);
 
-  // 5. Solve Quartic
-  auto best_d = selectSmallestRoot(quarticSolver(c0, c1, c2, c3, c4));
+  auto best_d = selectSmallestRoot(generalSolver<4>(coeffs));
 
-  return { p[0] + best_d * Vec3(n0[0], n0[1], 0),
-           p[1] + best_d * Vec3(m[0],  m[1],  0),
-           p[2] + best_d * Vec3(n2[0], n2[1], 0) };
+  return {best_d, { p[0] + best_d * Vec3(n0[0], n0[1], 0),
+                    p[1] + best_d * Vec3(m[0],  m[1],  0),
+                    p[2] + best_d * Vec3(n2[0], n2[1], 0) }};
 }
 
 [[maybe_unused]]
@@ -175,13 +182,14 @@ double parabolaConicintersection(const Parabola &p, const ImplicitConic &c) {
   auto x_2 = ax, x_1 = bx, x_0 = cx, y_2 = ay, y_1 = by, y_0 = cy;
 
   // Assemble coefficients
-  auto c4 = c.A*x2_4 + c.B*xy_4 + c.C*y2_4;
-  auto c3 = c.A*x2_3 + c.B*xy_3 + c.C*y2_3;
-  auto c2 = c.A*x2_2 + c.B*xy_2 + c.C*y2_2 + c.D*x_2 + c.E*y_2;
-  auto c1 = c.A*x2_1 + c.B*xy_1 + c.C*y2_1 + c.D*x_1 + c.E*y_1;
-  auto c0 = c.A*x2_0 + c.B*xy_0 + c.C*y2_0 + c.D*x_0 + c.E*y_0 + c.F;
+  std::array<double, 5> coeffs;
+  coeffs[4] = c.A*x2_4 + c.B*xy_4 + c.C*y2_4;
+  coeffs[3] = c.A*x2_3 + c.B*xy_3 + c.C*y2_3;
+  coeffs[2] = c.A*x2_2 + c.B*xy_2 + c.C*y2_2 + c.D*x_2 + c.E*y_2;
+  coeffs[1] = c.A*x2_1 + c.B*xy_1 + c.C*y2_1 + c.D*x_1 + c.E*y_1;
+  coeffs[0] = c.A*x2_0 + c.B*xy_0 + c.C*y2_0 + c.D*x_0 + c.E*y_0 + c.F;
 
-  return select01Root(quarticSolver(c0, c1, c2, c3, c4));
+  return select01Root(generalSolver<4>(coeffs));
 }
 
 EdgeCurve fitParabola(const SimpleDomain::Edge &e) {

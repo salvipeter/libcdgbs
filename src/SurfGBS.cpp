@@ -611,14 +611,18 @@ bool SurfGBS::compute_local_parameters()
       s.resize(num_loops);
       h.resize(num_loops);
       simple_domain.computeParameters(p, s, h);
+      if (use_h_widths) {
+        for (size_t i = 0; i < num_sides[0]; ++i) {
+          auto width = h_widths[0][i][0] * (1 - s[0][i]) + h_widths[0][i][1] * s[0][i];
+          h[0][i] = std::min(1.0, 1 - std::pow(1 - h[0][i] / width, 3));
+        }
+      }
     }
-    return true;
-  }
-
-  if (!compute_harmonic_parameters()) {
+  } else if (!compute_harmonic_parameters()) {
     std::cout << "Error computing harmonic parameters" << std::endl;
     return false;
   }
+
   if(!compute_deformed_parameters()) {
     std::cout << "Error computing deformed parameters" << std::endl;
     return false;

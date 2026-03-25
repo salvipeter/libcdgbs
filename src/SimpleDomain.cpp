@@ -307,8 +307,12 @@ void computeBoundaryS(const Vec3 &p,
   auto x = p[0], y = p[1];
   auto n = boundaries.size();
   for (size_t i = 0; i < n; ++i) {
+    auto p0 = evalEdgeCurve(boundaries[i], 0);
+    auto p1 = evalEdgeCurve(boundaries[i], 1);
     size_t i1 = (i + 1) % n, i_1 = (i + n - 1) % n;
     auto left_i = implicitize(boundaries[i_1]), right_i = implicitize(boundaries[i1]);
+    left_i = left_i * (1 / left_i.eval(p1[0], p1[1]));
+    right_i = right_i * (1 / right_i.eval(p0[0], p0[1]));
     auto d1 = left_i.eval(x, y), d2 = right_i.eval(x, y);
     auto s0 = d1 / (d1 + d2);
     auto initial_s = left_i + (left_i + right_i) * (-s0);

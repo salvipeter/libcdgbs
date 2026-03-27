@@ -290,11 +290,20 @@ namespace {
 void computeDistances(const Vec3 &p,
                       const std::vector<EdgeCurve> &boundaries,
                       const std::vector<SimpleDomain::Circle> &circles,
+                      const std::vector<double> &s,
                       std::vector<double> &d) {
   size_t n = boundaries.size();
-  for (size_t i = 0; i < n; ++i)
+  for (size_t i = 0; i < n; ++i) {
     // d.push_back(parabolaThroughPoint(parabolize(boundaries[i]), p).first);
-    d.push_back(implicitize(boundaries[i]).normeval(p[0], p[1]));
+    auto curve = implicitize(boundaries[i]);
+    d.push_back(curve.normeval(p[0], p[1]));
+    auto left = evalEdgeCurve(boundaries[(i+n-1)%n], 0);
+    auto right = evalEdgeCurve(boundaries[(i+1)%n], 1);
+    auto normalizer =
+      curve.normeval(left[0], left[1]) * (1 - s[i]) +
+      curve.normeval(right[0], right[1]) * s[i];
+    d.back() /= normalizer;
+  }
   for (size_t loop = 1; loop < circles.size(); ++loop) {
     const auto &c = circles[loop];
     d.push_back((c.center - p).norm() - c.radius);
@@ -399,15 +408,15 @@ void SimpleDomain::computeParameters(const Vec3 &p,
   // Compute Euclidean distances
   auto num_loops = num_sides.size();
   std::vector<double> d;
-  computeDistances(p, boundaries, holes, d);
   computeBoundaryS(p, boundaries, s[0]);
   for (size_t i = 1; i < num_loops; ++i)
     computeHoleS(p, holes[i], num_sides[i], s[i]);
+  computeDistances(p, boundaries, holes, s[0], d);
   size_t on_side = pointOnSide(p, d, 1e-4); // returns d.size() when not
-  if (on_side < d.size()) {
+  if (on_side < num_sides[0])
+    fixS(on_side, num_sides[0], num_points[on_side], s[0]);
+  if (on_side < d.size())
     computeSideH(on_side, d, num_sides, h);
-    if (on_side < num_sides[0])
-      fixS(on_side, num_sides[0], num_points[on_side], s[0]);
-  } else
+  else
     computeInteriorH(d, num_sides, h);
 }

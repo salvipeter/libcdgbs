@@ -617,6 +617,16 @@ bool SurfGBS::compute_local_parameters()
     return false;
   }
 
+  // auto s_tmp = s_coords; s_coords.clear();
+  // h_coords.clear();
+  // compute_harmonic_parameters();
+  // s_coords = s_tmp;
+
+  // auto h_tmp = h_coords; h_coords.clear();
+  // s_coords.clear();
+  // compute_harmonic_parameters();
+  // h_coords = h_tmp;
+
   if(!compute_deformed_parameters()) {
     std::cout << "Error computing deformed parameters" << std::endl;
     return false;

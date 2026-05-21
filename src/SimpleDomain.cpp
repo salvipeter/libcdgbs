@@ -306,7 +306,13 @@ void computeDistances(const Vec3 &p,
   }
   for (size_t loop = 1; loop < circles.size(); ++loop) {
     const auto &c = circles[loop];
-    d.push_back((c.center - p).norm() - c.radius);
+    auto min_dist = std::numeric_limits<double>::max();
+    for (size_t i = 0; i < n; ++i) {
+      auto dist = (evalEdgeCurve(boundaries[i], 0) - c.center).norm();
+      if (dist < min_dist)
+        min_dist = dist;
+    }
+    d.push_back(((c.center - p).norm() - c.radius) / (min_dist - c.radius));
   }
 }
 

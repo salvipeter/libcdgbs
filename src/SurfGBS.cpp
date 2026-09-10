@@ -610,7 +610,7 @@ bool SurfGBS::compute_local_parameters()
       auto &h = h_coords[v.idx()];
       s.resize(num_loops);
       h.resize(num_loops);
-      simple_domain.computeParameters(p, s, h);
+      simple_domain.computeParameters(p, h_widths[0], s, h);
     }
   } else if (!compute_harmonic_parameters()) {
     std::cout << "Error computing harmonic parameters" << std::endl;

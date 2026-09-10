@@ -9,6 +9,7 @@
 class SimpleDomain {
 public:
   using Vec3 = Eigen::Vector3d;
+  using HWidth = std::array<double, 2>;
   using Edge = std::vector<Vec3>;
   using Loop = std::vector<Edge>;
   using Segment = std::array<Vec3, 2>;
@@ -25,8 +26,9 @@ public:
 
   // Compute s/h local parameters
   // - p is the point of evaluation
+  // - h_widths is either empty or contains the left/right widths for each edge in the outer loop
   // - s[i][j] & h[i][j] are the parameters associated with side j in loop i
-  void computeParameters(const Vec3 &p,
+  void computeParameters(const Vec3 &p, const std::vector<HWidth> &h_width,
                          std::vector<std::vector<double>> &s,
                          std::vector<std::vector<double>> &h) const;
 

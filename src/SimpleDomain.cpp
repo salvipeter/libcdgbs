@@ -415,9 +415,12 @@ void reparameterizeH(const std::vector<SimpleDomain::HWidth> &h_width,
     auto hm = std::min(h_width[i][0], h_width[i][1]);
     auto val = std::min(default_val, hm * hm * hm + 3 * hm * (1 - hm));
     auto hw = h_width[i][0] * (1 - s[i]) + h_width[i][1] * s[i];
-    auto a = (val - hw * hw * hw) / (3 * hw * (1 - hw));
+    // auto a = (val - hw * hw * hw) / (3 * hw * (1 - hw));
+    auto hw2 = hw * hw, hw3 = hw2 * hw;
+    auto a = (val + 2 * hw3 - 3 * hw2) / (3 * (hw3 - 2 * hw2 + hw));
     if (a > 1e-10)
-      h[i] *= h[i] * h[i] - 3 * a * h[i] + 3 * a;
+      // h[i] *= h[i] * h[i] - 3 * a * h[i] + 3 * a;
+      h[i] *= (3 * a - 2) * h[i] * h[i] + (3 - 6 * a) * h[i] + 3 * a;
   }
 }
 

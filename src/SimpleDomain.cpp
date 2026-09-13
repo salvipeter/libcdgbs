@@ -323,8 +323,11 @@ double eucLineDistance(const Vec3 &p, const SimpleDomain::Segment &edge, bool in
   auto d = (dev - t * dev.dot(t)).norm();
   if (infinite)
     return d;
-  auto d0 = dev.norm(), d1 = (p - edge[1]).norm();
-  return std::min(d, std::min(d0, d1));
+  if (t.dot(p - edge[0]) < 0)
+    return dev.norm();
+  if (t.dot(p - edge[1]) > 0)
+    return (p - edge[1]).norm();
+  return d;
 }
 
 double eucParabolaDistance(const Vec3 &p, const SimpleDomain::Parabola &edge, bool infinite) {
@@ -339,14 +342,12 @@ double eucParabolaDistance(const Vec3 &p, const SimpleDomain::Parabola &edge, bo
   auto c3 = 2 * A.dot(A);
 
   double t = selectSmallestRoot(generalSolver<3>({c0, c1, c2, c3}));
-  auto d = (p - evalEdgeCurve(edge, t)).norm();
-
   if (infinite)
-    return d;
-  auto d0 = (p - edge[0]).norm(), d1 = (p - edge[2]).norm();
-  return std::min(d, std::min(d0, d1));
+    return (p - evalEdgeCurve(edge, t)).norm();
+  return (p - evalEdgeCurve(edge, std::clamp(t, 0.0, 1.0))).norm();
 }
 
+[[maybe_unused]]
 void computeEuclideanDistances(const Vec3 &p,
                                const std::vector<EdgeCurve> &boundaries,
                                const std::vector<SimpleDomain::Circle> &circles,

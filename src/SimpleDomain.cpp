@@ -460,18 +460,15 @@ void computeInteriorH(const std::vector<double> &d,
 void reparameterizeH(const std::vector<SimpleDomain::HWidth> &h_width,
                      const std::vector<double> &s,
                      std::vector<double> &h) {
-  const double default_val = 0.9;
+  const double val = 0.9;
+  const size_t k = 1;
   auto n = h.size();
   for (size_t i = 0; i < n; ++i) {
-    auto hm = std::min(h_width[i][0], h_width[i][1]);
-    auto val = std::min(default_val, hm * hm * hm + 3 * hm * (1 - hm));
     auto hw = h_width[i][0] * (1 - s[i]) + h_width[i][1] * s[i];
-    // auto a = (val - hw * hw * hw) / (3 * hw * (1 - hw));
-    auto hw2 = hw * hw, hw3 = hw2 * hw;
-    auto a = (val + 2 * hw3 - 3 * hw2) / (3 * (hw3 - 2 * hw2 + hw));
-    if (a > 1e-10)
-      // h[i] *= h[i] * h[i] - 3 * a * h[i] + 3 * a;
-      h[i] *= (3 * a - 2) * h[i] * h[i] + (3 - 6 * a) * h[i] + 3 * a;
+    if (1 - hw < 1e-8)
+      continue;
+    auto a = hw / std::pow(1 - hw, k) * (1 - val) / val;
+    h[i] /= h[i] + a * std::pow(1 - h[i], k);
   }
 }
 

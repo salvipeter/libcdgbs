@@ -348,6 +348,54 @@ double eucParabolaDistance(const Vec3 &p, const SimpleDomain::Parabola &edge, bo
 }
 
 [[maybe_unused]]
+double computeCapDistance(const Vec3 &p, const ImplicitConic &C, const Vec3 &v, const Vec3 &n) {
+  // static auto w = [](double t) { return 3 * t * t - 2 * t * t * t; };
+  static auto w = [](double t) {
+    return 6 * std::pow(t, 5) - 15 * std::pow(t, 4) + 10 * std::pow(t, 3);
+  };
+
+  auto r = (p - v).norm();
+  Vec3 p1 = v + n * r, p2 = v - n * r;
+  auto phi = std::acos(std::clamp(n.dot((p - v) / r), -1.0, 1.0));
+  auto d1 = std::abs(C.eval(p1[0], p1[1])), d2 = std::abs(C.eval(p2[0], p2[1]));
+  auto d_alg = std::abs(C.eval(p[0], p[1]));
+  auto d_c0 = d1 * (1 - phi / M_PI) + d2 * phi / M_PI;
+  auto t = std::sin(phi);
+  auto d = d_alg * (1 - w(t)) + d_c0 * w(t);
+  return d;
+}
+
+[[maybe_unused]]
+double tomiParabolaDistance(const Vec3 &p, const SimpleDomain::Parabola &edge) {
+  auto C = implicitize(edge);
+
+  // Scale the algebraic distance so that the point 1 unit from the center gives 1
+  Vec3 tm = edge[2] - edge[0];
+  Vec3 nm(-tm[1], tm[0], 0); nm.normalize();
+  auto pm = edge[0] / 4 + edge[1] / 2 + edge[2] / 4 + nm;
+  C = C * (1.0 / C.eval(pm[0], pm[1]));
+
+  // Left line
+  auto vl = edge[0];
+  auto tl = edge[1] - edge[0];
+  if (tl.dot(p - vl) < 0) {
+    Vec3 nl(-tl[1], tl[0], 0); nl.normalize();
+    return computeCapDistance(p, C, vl, nl);
+  }
+
+  // Right line
+  auto vr = edge[2];
+  auto tr = edge[2] - edge[1];
+  if (tr.dot(p - vr) > 0) {
+    Vec3 nr(-tr[1], tr[0], 0); nr.normalize();
+    return computeCapDistance(p, C, vr, nr);
+  }
+
+  // Inside normal region
+  return std::abs(C.eval(p[0], p[1]));
+}
+
+[[maybe_unused]]
 void computeEuclideanDistances(const Vec3 &p,
                                const std::vector<EdgeCurve> &boundaries,
                                const std::vector<SimpleDomain::Circle> &circles,
@@ -359,6 +407,24 @@ void computeEuclideanDistances(const Vec3 &p,
       d.push_back(eucLineDistance(p, std::get<Segment>(boundaries[i]), infinite_edges));
     else
       d.push_back(eucParabolaDistance(p, std::get<Parabola>(boundaries[i]), infinite_edges));
+  }
+  for (size_t loop = 1; loop < circles.size(); ++loop) {
+    const auto &c = circles[loop];
+    d.push_back((c.center - p).norm() - c.radius);
+  }
+}
+
+[[maybe_unused]]
+void computeTomiDistances(const Vec3 &p,
+                          const std::vector<EdgeCurve> &boundaries,
+                          const std::vector<SimpleDomain::Circle> &circles,
+                          std::vector<double> &d) {
+  size_t n = boundaries.size();
+  for (size_t i = 0; i < n; ++i) {
+    if (std::holds_alternative<Segment>(boundaries[i]))
+      d.push_back(eucLineDistance(p, std::get<Segment>(boundaries[i]), false));
+    else
+      d.push_back(tomiParabolaDistance(p, std::get<Parabola>(boundaries[i])));
   }
   for (size_t loop = 1; loop < circles.size(); ++loop) {
     const auto &c = circles[loop];
@@ -461,14 +527,44 @@ void reparameterizeH(const std::vector<SimpleDomain::HWidth> &h_width,
                      const std::vector<double> &s,
                      std::vector<double> &h) {
   const double val = 0.9;
-  const size_t k = 1;
+  const double ratio = 0.5;
   auto n = h.size();
   for (size_t i = 0; i < n; ++i) {
     auto hw = h_width[i][0] * (1 - s[i]) + h_width[i][1] * s[i];
     if (1 - hw < 1e-8)
       continue;
-    auto a = hw / std::pow(1 - hw, k) * (1 - val) / val;
-    h[i] /= h[i] + a * std::pow(1 - h[i], k);
+
+    // Use h / 3 up to the cutoff.  The cubic after it is fixed by matching
+    // the value and derivative there, then passing through (hw, val) and
+    // (1, 1).
+    const double cutoff = hw * ratio;
+    const double linear_slope = 1.0 / 3.0;
+    if (h[i] <= cutoff) {
+      h[i] = linear_slope * h[i];
+      continue;
+    }
+
+    const double to_hw = hw - cutoff;
+    const double to_one = 1.0 - cutoff;
+    const double value_at_cutoff = linear_slope * cutoff;
+    const double delta_at_hw = val - value_at_cutoff - linear_slope * to_hw;
+    const double delta_at_one = 1.0 - value_at_cutoff - linear_slope * to_one;
+    // A zero-width h interval cannot satisfy the distinct interpolation
+    // conditions.  This mirrors the old mapping's no-op behavior at hw = 0.
+    if (to_hw < 1e-12)
+      continue;
+
+    const double determinant = to_hw * to_hw * to_one * to_one * (to_one - to_hw);
+
+    const double quadratic =
+        (delta_at_hw * to_one * to_one * to_one -
+         delta_at_one * to_hw * to_hw * to_hw) / determinant;
+    const double cubic =
+        (to_hw * to_hw * delta_at_one - to_one * to_one * delta_at_hw) / determinant;
+    const double x = h[i] - cutoff;
+    h[i] = std::clamp(value_at_cutoff + linear_slope * x + quadratic * x * x +
+                          cubic * x * x * x,
+                      0.0, 1.0);
   }
 }
 
@@ -484,7 +580,8 @@ void SimpleDomain::computeParameters(const Vec3 &p, const std::vector<HWidth> &h
   for (size_t i = 1; i < num_loops; ++i)
     computeHoleS(p, holes[i], num_sides[i], s[i]);
   // computeDistances(p, boundaries, holes, s[0], d);
-  computeEuclideanDistances(p, boundaries, holes, d, false);
+  // computeEuclideanDistances(p, boundaries, holes, d, false);
+  computeTomiDistances(p, boundaries, holes, d);
   size_t on_side = pointOnSide(p, d, 1e-4); // returns d.size() when not
   if (on_side < num_sides[0])
     fixS(on_side, num_sides[0], num_points[on_side], s[0]);
@@ -492,6 +589,10 @@ void SimpleDomain::computeParameters(const Vec3 &p, const std::vector<HWidth> &h
     computeSideH(on_side, d, num_sides, h);
   else
     computeInteriorH(d, num_sides, h);
-  if (!h_width.empty())
-    reparameterizeH(h_width, s[0], h[0]);
+  // if (!h_width.empty())
+  //   reparameterizeH(h_width, s[0], h[0]);
+
+  // For debugging, use distances as h parameters
+  // for (size_t i = 0; i < num_sides[0]; ++i)
+  //   h[0][i] = d[i];
 }

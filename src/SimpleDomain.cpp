@@ -461,6 +461,7 @@ void computeHoleS(const Vec3 &p, const SimpleDomain::Circle &c, size_t num_sides
     s.push_back(std::fmod(c.start_angle - angle + 10 * pp, pp) / pp);
 }
 
+[[maybe_unused]]
 size_t pointOnSide(const Vec3 &p, const std::vector<double> &d, double tol) {
   size_t m = d.size();
   for (size_t i = 0; i < m; ++i)
@@ -469,6 +470,7 @@ size_t pointOnSide(const Vec3 &p, const std::vector<double> &d, double tol) {
   return m;
 }
 
+[[maybe_unused]]
 void computeSideH(size_t on_side, const std::vector<double> &d,
                   const std::vector<size_t> &num_sides,
                   std::vector<std::vector<double>> &h) {
@@ -492,6 +494,7 @@ void computeSideH(size_t on_side, const std::vector<double> &d,
   }
 }
 
+[[maybe_unused]]
 void fixS(size_t on_side, size_t n, size_t n_pts, std::vector<double> &s) {
   n_pts--;
   s[on_side] = std::round(s[on_side] * n_pts) / n_pts;
@@ -501,6 +504,85 @@ void fixS(size_t on_side, size_t n, size_t n_pts, std::vector<double> &s) {
     s[(on_side+1)%n] = 0;
 }
 
+std::pair<EdgeCurve, EdgeCurve> divideEdge(const EdgeCurve &e, double t) {
+  if (std::holds_alternative<Segment>(e)) {
+    auto s = std::get<Segment>(e);
+    auto q = s[0] * (1 - t) + s[1] * t;
+    return std::make_pair<EdgeCurve, EdgeCurve>(Segment{s[0], q}, Segment{q, s[1]});
+  }
+  auto p = std::get<Parabola>(e);
+  auto q0 = p[0] * (1 - t) + p[1] * t;
+  auto q2 = p[1] * (1 - t) + p[2] * t;
+  auto q1 = q0 * (1 - t) + q2 * t;
+  return std::make_pair<EdgeCurve, EdgeCurve>(Parabola{p[0], q0, q1}, Parabola{q1, q2, p[2]});
+}
+
+[[maybe_unused]]
+std::vector<EdgeCurve> divideBoundaries(const std::vector<EdgeCurve> &boundaries,
+                                        size_t i, double hl, double hr) {
+  // creates the new boundaries s.t. side i will be the new side 0,
+  // and divides the adjacent sides when hl/hr are not 1
+  size_t n = boundaries.size(), j = i;
+  std::vector<EdgeCurve> result;
+  result.push_back(boundaries[j]);
+  j = (j + 1) % n;
+  if (hr < 1) {
+    auto [l, r] = divideEdge(boundaries[j], hr);
+    result.push_back(l);
+    result.push_back(r);
+  } else
+    result.push_back(boundaries[j]);
+  j = (j + 1) % n;
+  while ((j + 1) % n != i) {
+    result.push_back(boundaries[j]);
+    j = (j + 1) % n;
+  }
+  if (hl < 1) {
+    auto [l, r] = divideEdge(boundaries[j], 1 - hl);
+    result.push_back(l);
+    result.push_back(r);
+  } else
+    result.push_back(boundaries[j]);
+  return result;
+}
+
+[[maybe_unused]]
+double computeH_1side(size_t i, size_t n, const std::vector<double> &d) {
+  size_t m = d.size();
+  std::vector<double> prods(m); // prods[j] = 1/(dj-1 dj) or 1/dj^2
+  double sum = 0;
+  for (size_t j = 0; j < m; ++j) {
+    if (j < n) {
+      size_t j_1 = (j + n - 1) % n;
+      prods[j] = 1 / (d[j_1] * d[j]);
+    } else
+      prods[j] = 1 / (d[j] * d[j]);
+    sum += prods[j];
+  }
+  return 1 - (prods[i] + prods[(i+1)%n]) / sum;
+}
+
+[[maybe_unused]]
+void computeInteriorH_holes(const std::vector<double> &d,
+                            const std::vector<size_t> &num_sides,
+                            std::vector<std::vector<double>> &h) {
+  size_t m = d.size(), n = num_sides[0];
+  std::vector<double> prods(m); // prods[i] = 1/(di-1 di) or 1/di^2
+  double sum = 0;
+  for (size_t i = 0; i < m; ++i) {
+    if (i < n) {
+      size_t i_1 = (i + n - 1) % n;
+      prods[i] = 1 / (d[i_1] * d[i]);
+    } else
+      prods[i] = 1 / (d[i] * d[i]);
+    sum += prods[i];
+  }
+  for (size_t i = n; i < m; ++i)
+    for (size_t j = 0; j < num_sides[i-n+1]; ++j)
+      h[i-n+1].push_back(std::sqrt(1 - prods[i] / sum));
+}
+
+[[maybe_unused]]
 void computeInteriorH(const std::vector<double> &d,
                       const std::vector<size_t> &num_sides,
                       std::vector<std::vector<double>> &h) {
@@ -579,20 +661,19 @@ void SimpleDomain::computeParameters(const Vec3 &p, const std::vector<HWidth> &h
   computeBoundaryS(p, boundaries, s[0]);
   for (size_t i = 1; i < num_loops; ++i)
     computeHoleS(p, holes[i], num_sides[i], s[i]);
+
   // computeDistances(p, boundaries, holes, s[0], d);
   // computeEuclideanDistances(p, boundaries, holes, d, false);
   computeTomiDistances(p, boundaries, holes, d);
-  size_t on_side = pointOnSide(p, d, 1e-4); // returns d.size() when not
-  if (on_side < num_sides[0])
-    fixS(on_side, num_sides[0], num_points[on_side], s[0]);
-  if (on_side < d.size())
-    computeSideH(on_side, d, num_sides, h);
-  else
-    computeInteriorH(d, num_sides, h);
-  // if (!h_width.empty())
-  //   reparameterizeH(h_width, s[0], h[0]);
-
-  // For debugging, use distances as h parameters
-  // for (size_t i = 0; i < num_sides[0]; ++i)
-  //   h[0][i] = d[i];
+  for (size_t i = 0; i < num_sides[0]; ++i)
+    if (h_width[i][0] == 1 && h_width[i][1] == 1)
+      h[0].push_back(computeH_1side(i, num_sides[0], d));
+    else {
+      auto b = divideBoundaries(boundaries, i, h_width[i][0], h_width[i][1]);
+      std::vector<double> d1;
+      // computeEuclideanDistances(p, b, holes, d1, false);
+      computeTomiDistances(p, b, holes, d1);
+      h[0].push_back(computeH_1side(0, b.size(), d1));
+    }
+  computeInteriorH_holes(d, num_sides, h);
 }

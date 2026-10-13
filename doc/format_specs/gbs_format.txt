@@ -15,3 +15,14 @@
 <CP^2_{0,0} : double x 3>
 ...
 <C^n_{k_n,l_n-1} : double x 3>  
+#
+<1st ribbon RibCP weight : double>  ...  <nth ribbon RibCP weight : double>
+<1st ribbon RibCP flag : int>  ...  <nth ribbon RibCP flag : int>
+<curve resolution : int>  <mesh resolution : int>  <harmonic levels : double>
+
+The trailer (from the '#' line) is optional. A RibCP flag of 1 marks the
+ribbon's LAST layer as a "Ribbon CP" row -- auxiliary data weighted by
+the corresponding RibCP weight, not part of the blend surface; readers
+that do not consume Ribbon CPs must drop the flagged last layers. The
+resolution/levels line is informational and may be ignored.
+

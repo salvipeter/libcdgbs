@@ -1,6 +1,8 @@
 #include "libcdgbs/SurfGBS.hpp"
 #include "libcdgbs/MatrixUtil.hpp"
 
+#include <algorithm>
+
 using namespace libcdgbs;
 using namespace MatrixUtil;
 
@@ -91,36 +93,58 @@ bool SurfGBS::compute_harmonic_parameters()
           std::vector<VertexHandle> side_pts;
           std::vector<VertexHandle> side_pts_m1;
           std::vector<VertexHandle> side_pts_p1;
+          // Constraint values collected ALONGSIDE the kept vertices:
+          // each value is computed from its own vertex's parameter, so
+          // windowed (non-prefix) subsets can never be paired with the
+          // head of the full parameter array, and the ramps stay linear
+          // in the parameter under non-uniform boundary sampling (the
+          // index-synthesized ramps assumed the old uniform sampling).
+          std::vector<double> side_val_m1;
+          std::vector<double> side_val_p1;
           for (size_t i = 0; i < domain_boundary_vertices[loop][side].size(); ++i) {
             auto vtx = domain_boundary_vertices[loop][side][i];
             side_pts.push_back(vtx);
           }
           for (size_t i = (three_sided ? 1 : 0); i < domain_boundary_vertices[loop][side_m1].size(); ++i) {
             auto vtx = domain_boundary_vertices[loop][side_m1][i];
-            size_t nseg = num_segments[loop][side_m1];
-            if(nseg == 1 || !restrict_params) {
-              if(!use_h_widths || domain_boundary_params[loop][side_m1][i] > 1.0 - h_widths[loop][side][0]) {
-                side_pts_m1.push_back(vtx);
-              }
-            }
-            else {
-              if (domain_boundary_params[loop][side_m1][i] >= double(nseg - 1)/nseg) {
-                side_pts_m1.push_back(vtx);
-              }
+            const double t = domain_boundary_params[loop][side_m1][i];
+            const size_t nseg = num_segments[loop][side_m1];
+            // Window width in the parameter: the last segment under
+            // restrict_params, the h-width when enabled, else the
+            // whole side.
+            const bool seg_window = restrict_params && nseg > 1;
+            const double w = seg_window     ? 1.0 / double(nseg)
+                             : use_h_widths ? h_widths[loop][side][0]
+                                            : 1.0;
+            const bool keep =
+              seg_window ? (t >= double(nseg - 1) / nseg)
+                         : (!use_h_widths ||
+                            t > 1.0 - h_widths[loop][side][0]);
+            if (keep) {
+              side_pts_m1.push_back(vtx);
+              // h rises 0 -> 1 from the shared corner (t = 1) across
+              // the window; the clamp meets the unconstrained default
+              // value 1 continuously at the window edge.
+              side_val_m1.push_back(
+                std::min(1.0, (1.0 - t) / std::max(w, 1e-12)));
             }
           }
           for (size_t i = 0; i < domain_boundary_vertices[loop][side_p1].size() - (three_sided ? 1 : 0); ++i) {
             auto vtx = domain_boundary_vertices[loop][side_p1][i];
-            size_t nseg = num_segments[loop][side_p1];
-            if (nseg == 1 || !restrict_params) {
-              if(!use_h_widths || domain_boundary_params[loop][side_p1][i] <= h_widths[loop][side][1]) {
-                side_pts_p1.push_back(vtx);
-              }
-            }
-            else{
-              if (domain_boundary_params[loop][side_p1][i] <= double(1) / nseg) {
-                side_pts_p1.push_back(vtx);
-              }
+            const double t = domain_boundary_params[loop][side_p1][i];
+            const size_t nseg = num_segments[loop][side_p1];
+            const bool seg_window = restrict_params && nseg > 1;
+            const double w = seg_window     ? 1.0 / double(nseg)
+                             : use_h_widths ? h_widths[loop][side][1]
+                                            : 1.0;
+            const bool keep =
+              seg_window ? (t <= 1.0 / double(nseg))
+                         : (!use_h_widths ||
+                            t <= h_widths[loop][side][1]);
+            if (keep) {
+              side_pts_p1.push_back(vtx);
+              side_val_p1.push_back(
+                std::min(1.0, t / std::max(w, 1e-12)));
             }
           }
 
@@ -137,84 +161,30 @@ bool SurfGBS::compute_harmonic_parameters()
             true
           );
 
-          if(restrict_params) {
-            if (num_segments[loop][side_m1] > 1) {
-              addConstraint2RHS(
-                mesh,
-                side_pts_m1,
-                dh,
-                idx,
-                true,
-                0.0,
-                1.0,
-                0.0,
-                true,
-                true
-              );
-            }
-            else {
-              addConstraint2RHS(
-                mesh,
-                side_pts_m1,
-                domain_boundary_params[loop][side_m1],
-                dh,
-                idx,
-                true,
-                true,
-                true
-              );
-            }
-            
-            if(num_segments[loop][side_p1] > 1) {
-              addConstraint2RHS(
-                mesh,
-                side_pts_p1,
-                dh,
-                idx,
-                true,
-                0.0,
-                0.0,
-                1.0,
-                true,
-                true
-              );
-            }
-            else {
-              addConstraint2RHS(
-                mesh,
-                side_pts_p1,
-                domain_boundary_params[loop][side_p1],
-                dh,
-                idx,
-                false,
-                true,
-                true
-              );
-            }
-          }
-          else {
-            addConstraint2RHS(
-              mesh,
-              side_pts_m1,
-              domain_boundary_params[loop][side_m1],
-              dh,
-              idx,
-              true,
-              true,
-              true
-            );
+          // Values are final (window-normalized, subset-aligned), so
+          // both neighbors go through the values overload unreversed;
+          // the former per-branch ramp/values calls are unified.
+          addConstraint2RHS(
+            mesh,
+            side_pts_m1,
+            side_val_m1,
+            dh,
+            idx,
+            false,
+            true,
+            true
+          );
 
-            addConstraint2RHS(
-              mesh,
-              side_pts_p1,
-              domain_boundary_params[loop][side_p1],
-              dh,
-              idx,
-              false,
-              true,
-              true
-            );
-          }
+          addConstraint2RHS(
+            mesh,
+            side_pts_p1,
+            side_val_p1,
+            dh,
+            idx,
+            false,
+            true,
+            true
+          );
 
           // addConstraint2RHS(
           //   mesh,

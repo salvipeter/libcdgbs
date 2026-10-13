@@ -1,4 +1,5 @@
 #include <fstream>
+#include <iostream>
 
 #include "libcdgbs/SurfGBS.hpp"
 #include "libcdgbs/LoopFlattener.hpp"
@@ -1476,9 +1477,6 @@ void SurfGBS::compute_auto_h_widths(double turning_angle, double length_ratio)
               break;
             }
           }
-          // // Print max values
-          // std::cout << "Loop " << loop << " Side " << side << " h-widths[" << ii << "] max length ratio: " << max_ratio 
-          //   << ", max turning angle (deg): " << max_angle * 180.0 / M_PI << std::endl;
         }
         else if (ii == 1 && num_segments[loop][side_p1] <= 1) {
           // side + 1
@@ -1504,24 +1502,36 @@ void SurfGBS::compute_auto_h_widths(double turning_angle, double length_ratio)
               break;
             }
           }
-          // // Print max values
-          // std::cout << "Loop " << loop << " Side " << side << " h-widths[" << ii << "] max length ratio: " << max_ratio 
-          //   << ", max turning angle (deg): " << max_angle * 180.0 / M_PI << std::endl;
         }
       }
     }
   }
 
-  // // Print h-widths
-  // for (size_t loop = 0; loop < num_loops; ++loop) {
-  //   for (size_t side = 0; side < num_sides[loop]; ++side) {
-  //     std::cout << "Loop " << loop << " Side " << side << " h-widths: ";
-  //     for (const auto& hw : h_widths[loop][side]) {
-  //       std::cout << hw << " ";
-  //     }
-  //     std::cout << std::endl;
-  //   }
-  // }
+  // Report the found widths (library diagnostic convention: gated by
+  // debug_outputs). Only sides with a genuine window are listed.
+  if (debug_outputs) {
+    std::cout << "auto h-widths (turning " << turning_angle
+              << " deg, ratio " << length_ratio << ", use_h_widths "
+              << (use_h_widths ? "on" : "off") << "):" << std::endl;
+    size_t windowed = 0;
+    for (size_t loop = 0; loop < num_loops; ++loop) {
+      for (size_t side = 0; side < h_widths[loop].size(); ++side) {
+        const auto& hw = h_widths[loop][side];
+        if (hw[0] < 1.0 || hw[1] < 1.0) {
+          ++windowed;
+          std::cout << "  loop " << loop << " side " << side
+                    << ": prev " << hw[0] << ", next " << hw[1]
+                    << std::endl;
+        }
+      }
+    }
+    if (windowed == 0) {
+      std::cout << "  all sides at full width" << std::endl;
+    }
+    else {
+      std::cout << "  " << windowed << " side(s) windowed" << std::endl;
+    }
+  }
 }
 
 void SurfGBS::find_init_placement_scales()

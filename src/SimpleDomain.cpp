@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <exception>
+#include <fstream>
 #include <limits>
 
 #include <Eigen/Dense>
@@ -683,6 +684,34 @@ void reparameterizeH(const std::vector<SimpleDomain::HWidth> &h_width,
     h[i] = std::clamp(value_at_cutoff + linear_slope * x + quadratic * x * x +
                           cubic * x * x * x,
                       0.0, 1.0);
+  }
+}
+
+void writeDomain(const std::vector<EdgeCurve> &boundaries,
+                 const std::vector<SimpleDomain::Circle> &holes,
+                 std::string filename) {
+  size_t n = boundaries.size(), m = holes.size() - 1;
+  std::ofstream f(filename);
+  f << n << ' ' << m << std::endl;
+  for (const auto &b : boundaries) {
+    if (std::holds_alternative<Segment>(b)) {
+      auto s = std::get<Segment>(b);
+      f << "1";
+      for (size_t i = 0; i < 2; ++i)
+        f << ' ' << s[i][0] << ' ' << s[i][1];
+      f << std::endl;
+    } else {
+      auto p = std::get<Parabola>(b);
+      f << "2";
+      for (size_t i = 0; i < 3; ++i)
+        f << ' ' << p[i][0] << ' ' << p[i][1];
+      f << std::endl;
+    }
+  }
+  for (size_t i = 1; i <= m; ++i) {
+    auto &h = holes[i];
+    auto c = h.center;
+    f << "1 " << c[0] << ' ' << c[1] << ' ' << h.radius << std::endl;
   }
 }
 

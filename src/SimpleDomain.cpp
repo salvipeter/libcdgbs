@@ -251,6 +251,34 @@ Vec3 evalEdgeCurve(const EdgeCurve &c, double u) {
   return p[0] * (1 - u) * (1 - u) + p[1] * 2 * (1 - u) * u + p[2] * u * u;
 }
 
+void writeDomain(const std::vector<EdgeCurve> &boundaries,
+                 const std::vector<SimpleDomain::Circle> &holes,
+                 std::string filename) {
+  size_t n = boundaries.size(), m = holes.size() - 1;
+  std::ofstream f(filename);
+  f << n << ' ' << m << std::endl;
+  for (const auto &b : boundaries) {
+    if (std::holds_alternative<Segment>(b)) {
+      auto s = std::get<Segment>(b);
+      f << "1";
+      for (size_t i = 0; i < 2; ++i)
+        f << ' ' << s[i][0] << ' ' << s[i][1];
+      f << std::endl;
+    } else {
+      auto p = std::get<Parabola>(b);
+      f << "2";
+      for (size_t i = 0; i < 3; ++i)
+        f << ' ' << p[i][0] << ' ' << p[i][1];
+      f << std::endl;
+    }
+  }
+  for (size_t i = 1; i <= m; ++i) {
+    auto &h = holes[i];
+    auto c = h.center;
+    f << "1 " << c[0] << ' ' << c[1] << ' ' << h.radius << std::endl;
+  }
+}
+
 } // anonymous namespace
 
 void SimpleDomain::init(std::vector<SimpleDomain::Loop> &loops, const toml::value &config) {
@@ -285,6 +313,10 @@ void SimpleDomain::init(std::vector<SimpleDomain::Loop> &loops, const toml::valu
     }
     holes[loop] = c;
   }
+
+  auto domfile = toml::find<std::optional<std::string>>(config, "domain_export");
+  if (domfile)
+    writeDomain(boundaries, holes, *domfile);
 }
 
 namespace {
@@ -490,6 +522,14 @@ void computeBoundaryS(const Vec3 &p,
   }
 }
 
+void computeBoundarySfromH(const std::vector<double> &h, std::vector<double> &s) {
+  auto n = s.size();
+  for (size_t i = 0; i < n; ++i) {
+    auto im = (i + n - 1) % n, ip = (i + 1) % n;
+    s.push_back(h[im] / (h[im] + h[ip]));
+  }
+}
+
 void computeHoleS(const Vec3 &p, const SimpleDomain::Circle &c, size_t num_sides,
                   std::vector<double> &s) {
   Vec3 dev = (p - c.center).normalized();
@@ -688,53 +728,22 @@ void reparameterizeH(const std::vector<SimpleDomain::HWidth> &h_width,
   }
 }
 
-void writeDomain(const std::vector<EdgeCurve> &boundaries,
-                 const std::vector<SimpleDomain::Circle> &holes,
-                 std::string filename) {
-  size_t n = boundaries.size(), m = holes.size() - 1;
-  std::ofstream f(filename);
-  f << n << ' ' << m << std::endl;
-  for (const auto &b : boundaries) {
-    if (std::holds_alternative<Segment>(b)) {
-      auto s = std::get<Segment>(b);
-      f << "1";
-      for (size_t i = 0; i < 2; ++i)
-        f << ' ' << s[i][0] << ' ' << s[i][1];
-      f << std::endl;
-    } else {
-      auto p = std::get<Parabola>(b);
-      f << "2";
-      for (size_t i = 0; i < 3; ++i)
-        f << ' ' << p[i][0] << ' ' << p[i][1];
-      f << std::endl;
-    }
-  }
-  for (size_t i = 1; i <= m; ++i) {
-    auto &h = holes[i];
-    auto c = h.center;
-    f << "1 " << c[0] << ' ' << c[1] << ' ' << h.radius << std::endl;
-  }
-}
-
 } // anonymous namespace
 
 void SimpleDomain::computeParameters(const Vec3 &p, const std::vector<HWidth> &h_width,
                                      std::vector<std::vector<double>> &s,
                                      std::vector<std::vector<double>> &h) const {
   auto use_euc = toml::find<bool>(config, "euclidean_distances");
+  auto s_from_h = toml::find<bool>(config, "s_from_h");
 
   // Compute Euclidean distances
   auto num_loops = num_sides.size();
   std::vector<double> d;
-  computeBoundaryS(p, boundaries, s[0]);
-  for (size_t i = 1; i < num_loops; ++i)
-    computeHoleS(p, holes[i], num_sides[i], s[i]);
-
-  // computeDistances(p, boundaries, holes, s[0], d);
   if (use_euc)
     computeEuclideanDistances(p, boundaries, holes, d, false);
   else
     computeTomiDistances(p, boundaries, holes, d);
+
   for (size_t i = 0; i < num_sides[0]; ++i)
     if (h_width[i][0] == 1 && h_width[i][1] == 1)
       h[0].push_back(computeH_1side(i, num_sides[0], d));
@@ -748,4 +757,11 @@ void SimpleDomain::computeParameters(const Vec3 &p, const std::vector<HWidth> &h
       h[0].push_back(computeH_1side(0, b.size(), d1));
     }
   computeInteriorH_holes(d, num_sides, h);
+
+  if (s_from_h)
+    computeBoundarySfromH(h[0], s[0]);
+  else
+    computeBoundaryS(p, boundaries, s[0]);
+  for (size_t i = 1; i < num_loops; ++i)
+    computeHoleS(p, holes[i], num_sides[i], s[i]);
 }

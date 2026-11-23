@@ -44,31 +44,43 @@ namespace libcdgbs {
     }
     gbs.compute_domain_boundary();
     gbs.compute_domain_mesh();
-    gbs.writeOBJ(gbs.meshDomain, filename + ".obj");
     gbs.compute_local_parameters();
+
+    auto export_domain = toml::find<bool>(config, "export_domain");
+    auto export_h = toml::find<bool>(config, "export_h");
+    auto export_s = toml::find<bool>(config, "export_s");
+    auto export_patch = toml::find<bool>(config, "export_patch");
+
+    if (export_domain)
+      gbs.writeOBJ(gbs.meshDomain, filename + ".obj");
 
     double diag = bounding_box_diagonal(gbs.meshDomain);
     for (size_t loop = 0; loop < gbs.num_loops; ++loop) {
       for (size_t side = 0; side < gbs.num_sides[loop]; ++side) {
-        for (auto v : gbs.meshDomain.vertices()) {
-          auto h = gbs.h_coords[v.idx()][loop][side];
-          gbs.meshDomain.point(v)[2] = h*diag;
+        if (export_h) {
+          for (auto v : gbs.meshDomain.vertices()) {
+            auto h = gbs.h_coords[v.idx()][loop][side];
+            gbs.meshDomain.point(v)[2] = h*diag;
+          }
+          gbs.writeOBJ(gbs.meshDomain, std::string("h") + std::to_string(loop) + std::to_string(side) + std::string(".obj"));
         }
-        gbs.writeOBJ(gbs.meshDomain, std::string("h") + std::to_string(loop) + std::to_string(side) + std::string(".obj"));
-        for (auto v : gbs.meshDomain.vertices()) {
-          auto s = gbs.s_coords[v.idx()][loop][side];
-          gbs.meshDomain.point(v)[2] = s*diag;
+        if (export_s) {
+          for (auto v : gbs.meshDomain.vertices()) {
+            auto s = gbs.s_coords[v.idx()][loop][side];
+            gbs.meshDomain.point(v)[2] = s*diag;
+          }
+          gbs.writeOBJ(gbs.meshDomain, std::string("s") + std::to_string(loop) + std::to_string(side) + std::string(".obj"));
         }
-        gbs.writeOBJ(gbs.meshDomain, std::string("s") + std::to_string(loop) + std::to_string(side) + std::string(".obj"));
       }
     }
     for (auto v : gbs.meshDomain.vertices()) {
       gbs.meshDomain.point(v)[2] = 0.0;
     }
 
-    gbs.compute_blend_functions();
-    gbs.evaluate_mesh(gbs.meshSurface, true, SurfGBS::GBS);
-    gbs.writeOBJ(gbs.meshSurface, filename + "_surf.obj");
-    gbs.writeMGBS(filename + "_out.mgbs");
+    if (export_patch) {
+      gbs.compute_blend_functions();
+      gbs.evaluate_mesh(gbs.meshSurface, true, SurfGBS::GBS);
+      gbs.writeOBJ(gbs.meshSurface, filename + "_surf.obj");
+    }
   }
 }

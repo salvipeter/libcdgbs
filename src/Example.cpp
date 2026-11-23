@@ -24,12 +24,24 @@ namespace libcdgbs {
   }
 
 
-  void Example::say_hello(const std::string& filename, const SurfGBS::InputParams& params) {
+  void Example::say_hello(const std::string& filename, const SurfGBS::InputParams& params_) {
+    SurfGBS::InputParams params = params_;
+    auto config = toml::parse(filename);
+    params.target_length = toml::find<double>(config, "triangle_edge_length");
     gbs = SurfGBS();
+    gbs.config = config;
     gbs.debug_outputs = true;
-    gbs.readMGBS(filename + ".mgbs", params);
-    // gbs.readGBS(filename + ".gbs", params);
-    // gbs.readCGB(filename + ".cgb", params);
+    auto fname = toml::find<std::string>(config, "filename");
+    if (fname.ends_with(".mgbs"))
+      gbs.readMGBS(fname, params);
+    else if (fname.ends_with(".gbs"))
+      gbs.readGBS(fname, params);
+    else if (fname.ends_with(".cgb"))
+      gbs.readCGB(fname, params);
+    else {
+      std::cerr << "Unknown file format!" << std::endl;
+      return;
+    }
     gbs.compute_domain_boundary();
     gbs.compute_domain_mesh();
     gbs.writeOBJ(gbs.meshDomain, filename + ".obj");
@@ -58,7 +70,5 @@ namespace libcdgbs {
     gbs.evaluate_mesh(gbs.meshSurface, true, SurfGBS::GBS);
     gbs.writeOBJ(gbs.meshSurface, filename + "_surf.obj");
     gbs.writeMGBS(filename + "_out.mgbs");
-
-    // std::cout << "Hello from libcdgbs!" << std::endl;
   }
 }

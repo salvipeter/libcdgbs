@@ -557,7 +557,7 @@ bool SurfGBS::compute_domain_boundary()
 
   }
 
-  simple_domain.init(domain_boundary_curves);
+  simple_domain.init(domain_boundary_curves, config);
 
   if (debug_outputs) {
     writeLoops(domain_boundary_curves, "boundary_uv_1.obj");
@@ -566,7 +566,17 @@ bool SurfGBS::compute_domain_boundary()
     writeLoops(boundary_points, "boundary_xyz.obj");
   }
 
+  auto hw = toml::find<std::optional<std::vector<std::array<double, 2>>>>(config, "h_widths");
   compute_auto_h_widths(30.0, 2.0);
+  if (hw) {
+    if (hw->size() != h_widths[0].size())
+      std::cerr << "WARNING: incorrect number of h-width values" << std::endl;
+    for (size_t i = 0; i < hw->size(); ++i) {
+      auto w = (*hw)[i];
+      h_widths[0][i][0] = w[0];
+      h_widths[0][i][1] = w[1];
+    }
+  }
 
   return true;
 }
@@ -600,7 +610,7 @@ bool SurfGBS::compute_domain_mesh()
 
 bool SurfGBS::compute_local_parameters()
 {
-  if (true) {
+  if (!toml::find<bool>(config, "harmonic")) {
     // Side-based quadratic parameterization
     s_coords.resize(meshDomain.n_vertices());
     h_coords.resize(meshDomain.n_vertices());

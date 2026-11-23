@@ -253,7 +253,8 @@ Vec3 evalEdgeCurve(const EdgeCurve &c, double u) {
 
 } // anonymous namespace
 
-void SimpleDomain::init(std::vector<SimpleDomain::Loop> &loops) {
+void SimpleDomain::init(std::vector<SimpleDomain::Loop> &loops, const toml::value &config) {
+  this->config = config;
   auto num_loops = loops.size();
   num_sides.clear();
   num_points.clear();
@@ -720,6 +721,8 @@ void writeDomain(const std::vector<EdgeCurve> &boundaries,
 void SimpleDomain::computeParameters(const Vec3 &p, const std::vector<HWidth> &h_width,
                                      std::vector<std::vector<double>> &s,
                                      std::vector<std::vector<double>> &h) const {
+  auto use_euc = toml::find<bool>(config, "euclidean_distances");
+
   // Compute Euclidean distances
   auto num_loops = num_sides.size();
   std::vector<double> d;
@@ -728,16 +731,20 @@ void SimpleDomain::computeParameters(const Vec3 &p, const std::vector<HWidth> &h
     computeHoleS(p, holes[i], num_sides[i], s[i]);
 
   // computeDistances(p, boundaries, holes, s[0], d);
-  // computeEuclideanDistances(p, boundaries, holes, d, false);
-  computeTomiDistances(p, boundaries, holes, d);
+  if (use_euc)
+    computeEuclideanDistances(p, boundaries, holes, d, false);
+  else
+    computeTomiDistances(p, boundaries, holes, d);
   for (size_t i = 0; i < num_sides[0]; ++i)
     if (h_width[i][0] == 1 && h_width[i][1] == 1)
       h[0].push_back(computeH_1side(i, num_sides[0], d));
     else {
       auto b = divideBoundaries(boundaries, i, h_width[i][0], h_width[i][1]);
       std::vector<double> d1;
-      // computeEuclideanDistances(p, b, holes, d1, false);
-      computeTomiDistances(p, b, holes, d1);
+      if (use_euc)
+        computeEuclideanDistances(p, b, holes, d1, false);
+      else
+        computeTomiDistances(p, b, holes, d1);
       h[0].push_back(computeH_1side(0, b.size(), d1));
     }
   computeInteriorH_holes(d, num_sides, h);

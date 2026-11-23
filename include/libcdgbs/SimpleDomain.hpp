@@ -1,5 +1,7 @@
 #pragma once
 
+#include <toml.hpp>
+
 #include <array>
 #include <variant>
 #include <vector>
@@ -22,7 +24,7 @@ public:
   // These polylines are modified(!):
   // - On the boundary, endpoints are preserved
   // - All other points are moved to uniformly sampled positions of the underlying geometry
-  void init(std::vector<Loop> &loops);
+  void init(std::vector<Loop> &loops, const toml::value &config);
 
   // Compute s/h local parameters
   // - p is the point of evaluation
@@ -37,4 +39,5 @@ private:
   std::vector<double> num_points;     // Number of points in each side of loop 0
   std::vector<EdgeCurve> boundaries;  // Segment/parabola of each side in loop 0
   std::vector<Circle> holes;          // Circle representing loop k (0th element not used!)
+  toml::value config;
 };

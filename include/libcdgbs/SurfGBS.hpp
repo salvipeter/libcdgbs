@@ -1,4 +1,5 @@
 #pragma once
+#include <toml.hpp>
 #include <geometry.hh>
 #include "Mesh.hpp"
 #include <Eigen/Eigen>
@@ -70,6 +71,8 @@ namespace libcdgbs {
           ribbon_init_placement(ribbon_init_placement_){
         };
     };
+
+    toml::value config;
 
     std::vector<std::vector<Ribbon> > ribbons;
     std::vector<std::vector<size_t> > num_segments;

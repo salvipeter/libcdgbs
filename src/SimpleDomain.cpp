@@ -347,7 +347,6 @@ double eucParabolaDistance(const Vec3 &p, const SimpleDomain::Parabola &edge, bo
   return (p - evalEdgeCurve(edge, std::clamp(t, 0.0, 1.0))).norm();
 }
 
-[[maybe_unused]]
 double computeCapDistance(const Vec3 &p, const ImplicitConic &C, const Vec3 &v, const Vec3 &n) {
   // static auto w = [](double t) { return 3 * t * t - 2 * t * t * t; };
   static auto w = [](double t) {
@@ -355,15 +354,48 @@ double computeCapDistance(const Vec3 &p, const ImplicitConic &C, const Vec3 &v, 
   };
 
   auto r = (p - v).norm();
-  Vec3 p1 = v + n * r, p2 = v - n * r;
+  Vec3 p_r = v + n * r;
   auto phi = std::acos(std::clamp(n.dot((p - v) / r), -1.0, 1.0));
-  auto d1 = std::abs(C.eval(p1[0], p1[1])), d2 = std::abs(C.eval(p2[0], p2[1]));
+  auto d_r = std::abs(C.eval(p_r[0], p_r[1]));
   auto d_alg = std::abs(C.eval(p[0], p[1]));
-  auto d_c0 = d1 * (1 - phi / M_PI) + d2 * phi / M_PI;
-  auto t = std::sin(phi);
-  auto d = d_alg * (1 - w(t)) + d_c0 * w(t);
+  auto wt = w(phi / (M_PI / 2));
+  auto d = d_alg * (1 - wt) + d_r * wt * (1 - wt) + r * wt * wt;
   return d;
 }
+
+double computeConnectingDistance(const Vec3 &p,
+                                 const Vec3 &vl, const Vec3 &vr,
+                                 const Vec3 &tl, const Vec3 &tr,
+                                 const Vec3 &nl, const Vec3 &nr,
+                                 const Vec3 &b, const Vec3 &bn) {
+  // Segment ("hippodrome") distance
+  auto t = b.dot(p - vl) / b.dot(b);
+  auto c = std::abs(bn.dot(p - vl)), d = c;
+  if (t < 0)
+    d = (p - vl).norm();
+  else if (t > 1)
+    d = (p - vr).norm();
+
+  if (tl.dot(b) < 0) {
+    // Left side under base
+    auto u = -tl.normalized().dot(p - vl);
+    auto al = -nl.dot(p - vl), ar = -nl.dot(p - vr);
+    auto w = 1.0 / (1 + al * al * (1 / (ar * ar) + 1 / (c * c)));
+    return d * (1 - w) + u * w;
+  }
+
+  if (tr.dot(b) < 0) {
+    // Right side under base
+    auto u = tr.normalized().dot(p - vl);
+    auto al = -nl.dot(p - vl), ar = -nl.dot(p - vr);
+    auto w = 1.0 / (1 + ar * ar * (1 / (al * al) + 1 / (c * c)));
+    return d * (1 - w) + u * w;
+  }
+
+  // Normal case
+  return d;
+}
+
 
 [[maybe_unused]]
 double tomiParabolaDistance(const Vec3 &p, const SimpleDomain::Parabola &edge) {
@@ -375,21 +407,25 @@ double tomiParabolaDistance(const Vec3 &p, const SimpleDomain::Parabola &edge) {
   auto pm = edge[0] / 4 + edge[1] / 2 + edge[2] / 4 + nm;
   C = C * (1.0 / C.eval(pm[0], pm[1]));
 
+  // Compute important quantities
+  auto vl = edge[0], vr = edge[2];
+  auto tl = edge[1] - edge[0], tr = edge[2] - edge[1];
+  Vec3 nl(-tl[1], tl[0], 0); nl.normalize();
+  Vec3 nr(-tr[1], tr[0], 0); nr.normalize();
+  Vec3 b = vr - vl, bn(-b[1], b[0], 0); bn.normalize();
+
+  // Lower region
+  if (bn.dot(edge[1] - vl) * bn.dot(p - vl) < 0 && // "below" than the parabola base
+      nl.dot(p - vl) < 0 && nr.dot(p - vr) < 0)
+    return computeConnectingDistance(p, vl, vr, tl, tr, nl, nr, b, bn);
+
   // Left line
-  auto vl = edge[0];
-  auto tl = edge[1] - edge[0];
-  if (tl.dot(p - vl) < 0) {
-    Vec3 nl(-tl[1], tl[0], 0); nl.normalize();
+  if (tl.dot(p - vl) < 0)
     return computeCapDistance(p, C, vl, nl);
-  }
 
   // Right line
-  auto vr = edge[2];
-  auto tr = edge[2] - edge[1];
-  if (tr.dot(p - vr) > 0) {
-    Vec3 nr(-tr[1], tr[0], 0); nr.normalize();
+  if (tr.dot(p - vr) > 0)
     return computeCapDistance(p, C, vr, nr);
-  }
 
   // Inside normal region
   return std::abs(C.eval(p[0], p[1]));

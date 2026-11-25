@@ -449,16 +449,16 @@ double tomiParabolaDistance(const Vec3 &p, const SimpleDomain::Parabola &edge) {
   Vec3 b = vr - vl, bn(-b[1], b[0], 0); bn.normalize();
 
   // Lower region
-  if (bn.dot(edge[1] - vl) * bn.dot(p - vl) < 0 && // "below" than the parabola base
+  if (bn.dot(edge[1] - vl) * bn.dot(p - vl) < 0 && // "below" the parabola base
       nl.dot(p - vl) < 0 && nr.dot(p - vr) < 0)
     return computeConnectingDistance(p, vl, vr, tl, tr, nl, nr, b, bn);
 
   // Left line
-  if (tl.dot(p - vl) < 0)
+  if (tl.dot(p - vl) < 0 && nl.dot(p - vl) >= 0)
     return computeCapDistance(p, C, vl, nl);
 
   // Right line
-  if (tr.dot(p - vr) > 0)
+  if (tr.dot(p - vr) > 0 && nr.dot(p - vr) >= 0)
     return computeCapDistance(p, C, vr, nr);
 
   // Inside normal region

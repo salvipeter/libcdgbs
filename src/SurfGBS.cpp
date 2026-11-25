@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 
@@ -1458,11 +1460,43 @@ void SurfGBS::compute_auto_h_widths(double turning_angle, double length_ratio)
       for (const auto& l : lengths_p1) { cum_lengths_p1.push_back(cum_lengths_p1.back() + l); }
       for (const auto& l : lengths_i) { cum_lengths_i.push_back(cum_lengths_i.back() + l); }
 
-      // Now compute h_widths based on length ratio and turning angle
+      // The width of the window that ends at sample jj of the neighbour
+      // (counted from the shared corner), as a fraction of the
+      // neighbour's curve PARAMETER: compute_harmonic_parameters compares
+      // the widths against domain_boundary_params, which differ from arc
+      // length fractions, considerably so on merged sides. Falls back to
+      // the arc length fraction if the parameters are not available.
+      const auto stop_width = [&](size_t nb, bool prev_side, size_t jj,
+                                  double arc_fraction) {
+        if (loop >= domain_boundary_params.size() ||
+            nb >= domain_boundary_params[loop].size()) {
+          return arc_fraction;
+        }
+        const auto& params = domain_boundary_params[loop][nb];
+        const size_t n = domain_boundary_curves[loop][nb].size();
+        if (params.size() != n || jj >= n) { return arc_fraction; }
+        if (!prev_side) {
+          // Kept samples satisfy t <= width: the stop sample is included.
+          return std::min(1.0, params[jj]);
+        }
+        // The previous side runs towards the corner; kept samples satisfy
+        // t > 1 - width. Rounding in 1 - (1 - t) must not decide whether
+        // the stop sample is kept, so the width is nudged to include it,
+        // as on the next side.
+        const double t = params[n - 1 - jj];
+        double w = 1.0 - t;
+        while (w < 1.0 && 1.0 - w >= t) { w = std::nextafter(w, 2.0); }
+        return std::min(1.0, w);
+      };
+
+      // Now compute h_widths based on length ratio and turning angle.
+      // Merged (multi-segment) neighbours are measured like any other;
+      // restrict_params caps their window at the adjacent segment in
+      // compute_harmonic_parameters.
       for(size_t ii = 0; ii < h_widths[loop][side].size(); ++ii) {
         h_widths[loop][side][ii] = 1.0; // Reset to max
         
-        if(ii == 0 && num_segments[loop][side_m1] <= 1) {
+        if(ii == 0) {
           // side - 1
           double max_ratio = 0.0;
           for (size_t jj = 1; jj < cum_lengths_m1.size(); ++jj) {
@@ -1471,7 +1505,7 @@ void SurfGBS::compute_auto_h_widths(double turning_angle, double length_ratio)
             double ratio = l_m1 / len_i;
             max_ratio = std::max(ratio, max_ratio);
             if (ratio >= length_ratio) {
-              h_widths[loop][side][ii] = std::min(h_widths[loop][side][ii], l_m1 / len_m1);
+              h_widths[loop][side][ii] = std::min(h_widths[loop][side][ii], stop_width(side_m1, true, jj, l_m1 / len_m1));
               break;
             }
           }
@@ -1483,12 +1517,12 @@ void SurfGBS::compute_auto_h_widths(double turning_angle, double length_ratio)
             double angle = abs(GeomUtil::getAngle(t_0, t_i));
             max_angle = std::max(angle, max_angle);
             if (angle >= turning_angle_rad) {
-              h_widths[loop][side][ii] = std::min(h_widths[loop][side][ii], cum_lengths_m1[jj] / len_m1);
+              h_widths[loop][side][ii] = std::min(h_widths[loop][side][ii], stop_width(side_m1, true, jj, cum_lengths_m1[jj] / len_m1));
               break;
             }
           }
         }
-        else if (ii == 1 && num_segments[loop][side_p1] <= 1) {
+        else if (ii == 1) {
           // side + 1
           double max_ratio = 0.0;
           for (size_t jj = 1; jj < cum_lengths_p1.size(); ++jj) {
@@ -1496,7 +1530,7 @@ void SurfGBS::compute_auto_h_widths(double turning_angle, double length_ratio)
             double ratio = l_p1 / len_i;
             max_ratio = std::max(ratio, max_ratio);
             if (ratio >= length_ratio) {
-              h_widths[loop][side][ii] = std::min(h_widths[loop][side][ii], cum_lengths_p1[jj] / len_p1);
+              h_widths[loop][side][ii] = std::min(h_widths[loop][side][ii], stop_width(side_p1, false, jj, cum_lengths_p1[jj] / len_p1));
               break;
             }
           }
@@ -1508,7 +1542,7 @@ void SurfGBS::compute_auto_h_widths(double turning_angle, double length_ratio)
             double angle = abs(GeomUtil::getAngle(t_0, t_i));
             max_angle = std::max(angle, max_angle);
             if (angle >= turning_angle_rad) {
-              h_widths[loop][side][ii] = std::min(h_widths[loop][side][ii], cum_lengths_p1[jj] / len_p1);
+              h_widths[loop][side][ii] = std::min(h_widths[loop][side][ii], stop_width(side_p1, false, jj, cum_lengths_p1[jj] / len_p1));
               break;
             }
           }

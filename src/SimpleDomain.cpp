@@ -504,7 +504,8 @@ void computeTomiDistances(const Vec3 &p,
 
 void computeBoundaryS(const Vec3 &p,
                       const std::vector<EdgeCurve> &boundaries,
-                      std::vector<double> &s) {
+                      std::vector<double> &s,
+                      bool linearize_s) {
   auto x = p[0], y = p[1];
   auto n = boundaries.size();
   for (size_t i = 0; i < n; ++i) {
@@ -516,17 +517,12 @@ void computeBoundaryS(const Vec3 &p,
     right_i = right_i * (1 / right_i.eval(p0[0], p0[1]));
     auto d1 = left_i.eval(x, y), d2 = right_i.eval(x, y);
     auto s0 = d1 / (d1 + d2);
-    auto initial_s = left_i + (left_i + right_i) * (-s0);
-    auto final_s = parabolaConicintersection(parabolize(boundaries[i]), initial_s);
-    s.push_back(final_s);
-  }
-}
-
-void computeBoundarySfromH(const std::vector<double> &h, std::vector<double> &s) {
-  auto n = s.size();
-  for (size_t i = 0; i < n; ++i) {
-    auto im = (i + n - 1) % n, ip = (i + 1) % n;
-    s.push_back(h[im] / (h[im] + h[ip]));
+    if (linearize_s) {
+      auto initial_s = left_i + (left_i + right_i) * (-s0);
+      auto final_s = parabolaConicintersection(parabolize(boundaries[i]), initial_s);
+      s.push_back(final_s);
+    } else
+      s.push_back(s0);
   }
 }
 
@@ -734,7 +730,7 @@ void SimpleDomain::computeParameters(const Vec3 &p, const std::vector<HWidth> &h
                                      std::vector<std::vector<double>> &s,
                                      std::vector<std::vector<double>> &h) const {
   auto use_euc = toml::find<bool>(config, "euclidean_distances");
-  auto s_from_h = toml::find<bool>(config, "s_from_h");
+  auto linearize_s = toml::find<bool>(config, "linearize_s");
 
   // Compute Euclidean distances
   auto num_loops = num_sides.size();
@@ -758,10 +754,7 @@ void SimpleDomain::computeParameters(const Vec3 &p, const std::vector<HWidth> &h
     }
   computeInteriorH_holes(d, num_sides, h);
 
-  if (s_from_h)
-    computeBoundarySfromH(h[0], s[0]);
-  else
-    computeBoundaryS(p, boundaries, s[0]);
+  computeBoundaryS(p, boundaries, s[0], linearize_s);
   for (size_t i = 1; i < num_loops; ++i)
     computeHoleS(p, holes[i], num_sides[i], s[i]);
 }

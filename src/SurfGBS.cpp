@@ -640,10 +640,10 @@ bool SurfGBS::compute_local_parameters()
   // compute_harmonic_parameters();
   // h_coords = h_tmp;
 
-  if(!compute_deformed_parameters()) {
-    std::cout << "Error computing deformed parameters" << std::endl;
-    return false;
-  }
+  // if(!compute_deformed_parameters()) {
+  //   std::cout << "Error computing deformed parameters" << std::endl;
+  //   return false;
+  // }
 
   return true;
 }

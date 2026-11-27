@@ -502,6 +502,7 @@ void computeTomiDistances(const Vec3 &p,
   }
 }
 
+[[maybe_unused]]
 void computeBoundaryS(const Vec3 &p,
                       const std::vector<EdgeCurve> &boundaries,
                       std::vector<double> &s,
@@ -730,7 +731,7 @@ void SimpleDomain::computeParameters(const Vec3 &p, const std::vector<HWidth> &h
                                      std::vector<std::vector<double>> &s,
                                      std::vector<std::vector<double>> &h) const {
   auto use_euc = toml::find<bool>(config, "euclidean_distances");
-  auto linearize_s = toml::find<bool>(config, "linearize_s");
+  size_t n = num_sides[0];
 
   // Compute Euclidean distances
   auto num_loops = num_sides.size();
@@ -740,9 +741,9 @@ void SimpleDomain::computeParameters(const Vec3 &p, const std::vector<HWidth> &h
   else
     computeTomiDistances(p, boundaries, holes, d);
 
-  for (size_t i = 0; i < num_sides[0]; ++i)
+  for (size_t i = 0; i < n; ++i)
     if (h_width[i][0] == 1 && h_width[i][1] == 1)
-      h[0].push_back(computeH_1side(i, num_sides[0], d));
+      h[0].push_back(computeH_1side(i, n, d));
     else {
       auto b = divideBoundaries(boundaries, i, h_width[i][0], h_width[i][1]);
       std::vector<double> d1;
@@ -754,7 +755,10 @@ void SimpleDomain::computeParameters(const Vec3 &p, const std::vector<HWidth> &h
     }
   computeInteriorH_holes(d, num_sides, h);
 
-  computeBoundaryS(p, boundaries, s[0], linearize_s);
+  for (size_t i = 0; i < n; ++i) {
+    size_t im = (i + n - 1) % n, ip = (i + 1) % n;
+    s[0].push_back(d[im] / (d[im] + d[ip]));
+  }
   for (size_t i = 1; i < num_loops; ++i)
     computeHoleS(p, holes[i], num_sides[i], s[i]);
 }

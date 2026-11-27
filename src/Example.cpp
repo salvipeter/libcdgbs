@@ -54,20 +54,19 @@ namespace libcdgbs {
     if (export_domain)
       gbs.writeOBJ(gbs.meshDomain, filename + ".obj");
 
-    double diag = bounding_box_diagonal(gbs.meshDomain);
     for (size_t loop = 0; loop < gbs.num_loops; ++loop) {
       for (size_t side = 0; side < gbs.num_sides[loop]; ++side) {
         if (export_h) {
           for (auto v : gbs.meshDomain.vertices()) {
             auto h = gbs.h_coords[v.idx()][loop][side];
-            gbs.meshDomain.point(v)[2] = h*diag;
+            gbs.meshDomain.point(v)[2] = h;
           }
           gbs.writeOBJ(gbs.meshDomain, std::string("h") + std::to_string(loop) + std::to_string(side) + std::string(".obj"));
         }
         if (export_s) {
           for (auto v : gbs.meshDomain.vertices()) {
             auto s = gbs.s_coords[v.idx()][loop][side];
-            gbs.meshDomain.point(v)[2] = s*diag;
+            gbs.meshDomain.point(v)[2] = s;
           }
           gbs.writeOBJ(gbs.meshDomain, std::string("s") + std::to_string(loop) + std::to_string(side) + std::string(".obj"));
         }

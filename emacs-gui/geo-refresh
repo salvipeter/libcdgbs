@@ -1,0 +1,4 @@
+#!/bin/bash
+gdbus emit --session \
+      --object-path /org/salvipeter/GeoFramework \
+      --signal org.salvipeter.GeoFramework.Refresh
